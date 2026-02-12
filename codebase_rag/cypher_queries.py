@@ -84,6 +84,114 @@ LIMIT 1
 """
 
 
+CYPHER_FIND_FORWARD_PATHS = """
+MATCH path = (start:Function)-[:CALLS*1..5]->(end:Function)
+WHERE start.name = $start_name
+RETURN nodes(path) AS nodes, relationships(path) AS rels
+LIMIT $limit
+"""
+
+CYPHER_FIND_BACKWARD_PATHS = """
+MATCH path = (start:Function)-[:CALLS*1..5]->(end:Function)
+WHERE start.name = $harness_name AND end.name = $sink_name
+RETURN nodes(path) AS nodes, relationships(path) AS rels
+LIMIT $limit
+"""
+
+CYPHER_FIND_FUNCTION_BY_LOCATION = """
+MATCH (f:Function)
+WHERE f.path ENDS WITH $path AND f.start_line <= $line AND f.end_line >= $line
+RETURN f.qualified_name AS qualified_name, f.name AS name
+LIMIT 1
+"""
+
+# Detailed path queries that return function metadata for building CodeSnippets
+CYPHER_FIND_FORWARD_PATHS_DETAILED = """
+MATCH path = (start:Function)-[:CALLS*1..10]->(end:Function)
+WHERE start.name = $start_name
+WITH path, nodes(path) AS ns
+UNWIND ns AS n
+OPTIONAL MATCH (m:Module)-[:DEFINES]->(n)
+RETURN
+  [x IN ns | x.qualified_name] AS path_qnames,
+  [x IN ns | x.name] AS path_names,
+  [x IN ns | x.start_line] AS path_start_lines,
+  [x IN ns | x.end_line] AS path_end_lines,
+  collect(DISTINCT m.path) AS module_paths
+LIMIT $limit
+"""
+
+CYPHER_FIND_BACKWARD_PATHS_DETAILED = """
+MATCH path = (start:Function)-[:CALLS*1..10]->(end:Function)
+WHERE start.name = $harness_name AND end.name = $sink_name
+WITH path, nodes(path) AS ns
+UNWIND ns AS n
+OPTIONAL MATCH (m:Module)-[:DEFINES]->(n)
+RETURN
+  [x IN ns | x.qualified_name] AS path_qnames,
+  [x IN ns | x.name] AS path_names,
+  [x IN ns | x.start_line] AS path_start_lines,
+  [x IN ns | x.end_line] AS path_end_lines,
+  collect(DISTINCT m.path) AS module_paths
+LIMIT $limit
+"""
+
+# Find leaf functions (functions that are called but don't call others = potential sinks)
+CYPHER_FIND_LEAF_FUNCTIONS = """
+MATCH path = (start:Function)-[:CALLS*1..10]->(leaf:Function)
+WHERE start.name = $start_name AND NOT (leaf)-[:CALLS]->(:Function)
+OPTIONAL MATCH (m:Module)-[:DEFINES]->(leaf)
+RETURN DISTINCT
+  leaf.name AS name,
+  leaf.qualified_name AS qualified_name,
+  leaf.start_line AS start_line,
+  leaf.end_line AS end_line,
+  m.path AS path
+LIMIT $limit
+"""
+
+# Lookup function by name (for resolving harness/sink names)
+CYPHER_FIND_FUNCTION_BY_NAME = """
+MATCH (f:Function)
+WHERE f.name = $name
+OPTIONAL MATCH (m:Module)-[:DEFINES]->(f)
+RETURN
+  f.name AS name,
+  f.qualified_name AS qualified_name,
+  f.start_line AS start_line,
+  f.end_line AS end_line,
+  m.path AS path
+LIMIT $limit
+"""
+
+# Get callers of a function (reverse-call lookup)
+CYPHER_GET_CALLERS = """
+MATCH (caller:Function)-[:CALLS]->(target:Function)
+WHERE target.name = $name
+OPTIONAL MATCH (m:Module)-[:DEFINES]->(caller)
+RETURN DISTINCT
+  caller.name AS name,
+  caller.qualified_name AS qualified_name,
+  caller.start_line AS start_line,
+  caller.end_line AS end_line,
+  m.path AS path
+LIMIT $limit
+"""
+
+# Get callees of a function
+CYPHER_GET_CALLEES = """
+MATCH (caller:Function)-[:CALLS]->(callee:Function)
+WHERE caller.name = $name
+OPTIONAL MATCH (m:Module)-[:DEFINES]->(callee)
+RETURN DISTINCT
+  callee.name AS name,
+  callee.qualified_name AS qualified_name,
+  callee.start_line AS start_line,
+  callee.end_line AS end_line,
+  m.path AS path
+LIMIT $limit
+"""
+
 def wrap_with_unwind(query: str) -> str:
     return f"UNWIND $batch AS row\n{query}"
 
